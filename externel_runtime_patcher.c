@@ -281,8 +281,8 @@ BOOL StartTargetExe(const char *exeName) {
 
 int main() {
     EnsureAdmin();  // Auto-elevate to admin
-    SetConsoleTitle("Made For Cyber DZ >_");
-    printf("\n===== Eternal Runtime Patcher v4.2 =====");
+    SetConsoleTitle("Made By TheGreen >_"); // removing credit is not a good thing haha...
+    printf("\n===== Eternal Runtime Patcher v4.3 =====");
     printf("\n[+] Patch file: %s\n", PATCH_FILE);
     
     // Enable debug privilege for protected processes
