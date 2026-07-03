@@ -9,6 +9,7 @@
 #include <psapi.h>
 #include <stdlib.h>
 #include <shellapi.h>
+#include <ctype.h>
 
 // Enable debug privilege
 void EnableDebug() {
@@ -79,7 +80,6 @@ void RunAsAdmin(void)
         exit(EXIT_FAILURE);
     }
 
-    // Close the current non elevated instance..
     ExitProcess(0);
 }
 
@@ -91,6 +91,33 @@ void Clean(char* str) {
         memmove(str, str + 1, len - 2);
         str[len - 2] = 0;
     }
+}
+
+// Find process ID by executable name
+DWORD FindProcessId(const char* exeName) {
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    if (!Process32First(snapshot, &pe32)) {
+        CloseHandle(snapshot);
+        return 0;
+    }
+
+    do {
+        if (_stricmp(pe32.szExeFile, exeName) == 0) {
+            DWORD pid = pe32.th32ProcessID;
+            CloseHandle(snapshot);
+            return pid;
+        }
+    } while (Process32Next(snapshot, &pe32));
+
+    CloseHandle(snapshot);
+    return 0;
 }
 
 // Find module by name and get its base address
@@ -120,7 +147,7 @@ ULONGLONG FindModuleBase(HANDLE hProcess, const char* moduleName) {
             if (_stricmp(name, moduleName) == 0) {
                 return (ULONGLONG)modules[i];
             }
-            // Also check if moduleName is part of the filename (e.g., "x.dll" matches "x.dll")
+            // Also check if moduleName is part of the filename
             char* lowerName = _strdup(name);
             char* lowerSearch = _strdup(moduleName);
             for (char* p = lowerName; *p; p++) *p = tolower(*p);
@@ -202,6 +229,10 @@ BOOL PatchMemory(HANDLE hProcess, LPVOID address, BYTE oldByte, BYTE newByte) {
 }
 
 int main() {
+
+    // A little credit
+    SetConsoleTitleW(L"Patcher By TheGreen");
+
     RunAsAdmin();
     EnableDebug();
 
@@ -209,11 +240,48 @@ int main() {
     printf("   RUNTIME PATCHER - EXE/DLL\n");
     printf("====================================\n\n");
 
-    // Get PID
     DWORD pid = 0;
-    printf("Enter PID: ");
-    scanf("%lu", &pid);
-    getchar();
+    char exeName[MAX_PATH] = { 0 };
+    char input[256] = { 0 };
+
+    // First try to get EXE name
+    printf("Enter EXE name: ");
+    fgets(exeName, sizeof(exeName), stdin);
+    Clean(exeName);
+
+    if (strlen(exeName) > 0) {
+        printf("[+] Looking for process: %s\n", exeName);
+
+        // Try to find the process
+        for (int attempts = 5; attempts > 0; attempts--) {
+            pid = FindProcessId(exeName);
+            if (pid) {
+                printf("[+] Found PID: %lu\n", pid);
+                break;
+            }
+            if (attempts > 1) {
+                printf("[~] Waiting for process... (%d attempts left)\n", attempts - 1);
+                Sleep(1000);
+            }
+        }
+
+        if (!pid) {
+            printf("[!] Process not found after waiting.\n");
+        }
+    }
+
+    // If not found, ask for PID
+    if (!pid) {
+        printf("\n[?] Enter PID manually: ");
+        if (scanf("%lu", &pid) != 1) {
+            printf("[!] Invalid PID\n");
+            getchar();
+            printf("\nPress ENTER to exit...");
+            getchar();
+            return 1;
+        }
+        getchar();
+    }
 
     // Open process
     HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
@@ -231,7 +299,7 @@ int main() {
 
     // Get module name or index
     char moduleName[256] = { 0 };
-    printf("\nEnter module name or number to patch (e.g., x.dll or 5): ");
+    printf("\nEnter module name or number to patch: ");
     fgets(moduleName, sizeof(moduleName), stdin);
     Clean(moduleName);
 
