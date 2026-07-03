@@ -8,6 +8,7 @@
 #include <string.h>
 #include <psapi.h>
 #include <stdlib.h>
+#include <shellapi.h>
 
 // Enable debug privilege
 void EnableDebug() {
@@ -22,24 +23,64 @@ void EnableDebug() {
 }
 
 // Run as admin
-void RunAsAdmin() {
+void RunAsAdmin(void)
+{
+    HANDLE token = NULL;
+    TOKEN_ELEVATION elevation;
+    DWORD size = 0;
     BOOL isAdmin = FALSE;
-    HANDLE token;
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-        TOKEN_ELEVATION elevation;
-        DWORD size;
-        if (GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size)) {
+
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        if (GetTokenInformation(token,
+            TokenElevation,
+            &elevation,
+            sizeof(elevation),
+            &size))
+        {
             isAdmin = elevation.TokenIsElevated;
         }
+
         CloseHandle(token);
     }
 
-    if (!isAdmin) {
-        char path[MAX_PATH];
-        GetModuleFileNameA(NULL, path, MAX_PATH);
-        SHELLEXECUTEINFOA sei = { sizeof(sei), "runas", path, NULL, NULL, SW_NORMAL };
-        if (ShellExecuteExA(&sei)) exit(0);
+    if (isAdmin)
+        return;
+
+    printf("Restarting as administrator...\n");
+
+    char path[MAX_PATH];
+    if (!GetModuleFileNameA(NULL, path, MAX_PATH))
+    {
+        printf("GetModuleFileNameA failed (%lu)\n", GetLastError());
+        exit(EXIT_FAILURE);
     }
+
+    SHELLEXECUTEINFOA sei;
+    ZeroMemory(&sei, sizeof(sei));
+
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = "runas";
+    sei.lpFile = path;
+    sei.nShow = SW_SHOWNORMAL;
+
+    if (!ShellExecuteExA(&sei))
+    {
+        DWORD err = GetLastError();
+
+        if (err == ERROR_CANCELLED)
+            printf("Administrator permission was denied.\n");
+        else
+            printf("ShellExecuteExA failed (Error %lu)\n", err);
+
+        printf("Press ENTER to exit...");
+        getchar();
+        exit(EXIT_FAILURE);
+    }
+
+    // Close the current non elevated instance..
+    ExitProcess(0);
 }
 
 // Clean string
