@@ -1,5 +1,5 @@
-//info:
-// compile: gcc -m64 patcher.c -o patcher.exe -lpsapi
+// Info:
+// Compile -> gcc -m64 patcher.c -o patcher.exe -lpsapi
 
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
@@ -94,29 +94,53 @@ void Clean(char* str) {
 }
 
 // Find process ID by executable name
-DWORD FindProcessId(const char* exeName) {
-    PROCESSENTRY32 pe32;
-    pe32.dwSize = sizeof(PROCESSENTRY32);
+DWORD FindProcessId(const char* exeName)
+{
+    wchar_t target[MAX_PATH];
 
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) {
-        return 0;
+    MultiByteToWideChar(CP_UTF8, 0, exeName, -1, target, MAX_PATH);
+
+    // trim leading spaces
+    wchar_t* name = target;
+    while (*name == L' ' || *name == L'\t')
+        name++;
+
+    // trim trailing spaces
+    wchar_t* end = name + wcslen(name);
+    while (end > name && (end[-1] == L' ' || end[-1] == L'\t'))
+        *--end = 0;
+
+    // remove quotes
+    if (*name == L'"' && end > name + 1 && end[-1] == L'"') {
+        name++;
+        end[-1] = 0;
     }
 
-    if (!Process32First(snapshot, &pe32)) {
-        CloseHandle(snapshot);
+    // append .exe if needed
+    if (wcslen(name) < 4 || _wcsicmp(name + wcslen(name) - 4, L".exe") != 0)
+        wcscat_s(name, MAX_PATH - (name - target), L".exe");
+
+    PROCESSENTRY32 pe32 = { 0 };
+    pe32.dwSize = sizeof(pe32);
+
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return 0;
+
+    if (!Process32First(snap, &pe32)) {
+        CloseHandle(snap);
         return 0;
     }
 
     do {
-        if (_stricmp(pe32.szExeFile, exeName) == 0) {
+        if (_wcsicmp(pe32.szExeFile, name) == 0) {
             DWORD pid = pe32.th32ProcessID;
-            CloseHandle(snapshot);
+            CloseHandle(snap);
             return pid;
         }
-    } while (Process32Next(snapshot, &pe32));
+    } while (Process32Next(snap, &pe32));
 
-    CloseHandle(snapshot);
+    CloseHandle(snap);
     return 0;
 }
 
